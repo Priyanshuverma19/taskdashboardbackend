@@ -2,15 +2,15 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import db from './lib/db.js';
+import pool from './lib/db.js';
 
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL||'*', 
+    origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    credentials: true,
+   
   },
 });
 
@@ -36,18 +36,19 @@ app.post('/tasks', async (req, res) => {
   try {
     const { name, status } = req.body;
     const created_at = new Date().toISOString(); 
-    const [result] = await db.execute(
+    const [result] = await pool.execute(
       'INSERT INTO tasks (name, status, created_at) VALUES (?, ?, ?)',
       [name, status, created_at]
     );
-    const task = { id: result.insertId, name, status, created_at }; 
-    io.emit('taskAdded', task); // Emit task with created_at
+    const task = { id: result.insertId, name, status, created_at };
+    io.emit('taskAdded', task);
     res.status(201).json(task);
   } catch (error) {
     console.error('Error adding task:', error);
     res.status(500).json({ message: 'Failed to add task', error });
   }
 });
+
 
 app.get('/tasks', async (req, res) => {
   try {
@@ -60,7 +61,7 @@ app.get('/tasks', async (req, res) => {
       queryParams.push(`%${searchQuery}%`);
     }
 
-    const [tasks] = await db.execute(query, queryParams);
+    const [tasks] = await pool.execute(query, queryParams);
     res.json(tasks);
   } catch (error) {
     console.error('Error fetching tasks:', error);
@@ -73,7 +74,7 @@ app.put('/tasks/:id', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    await db.execute('UPDATE tasks SET status = ? WHERE id = ?', [status, id]);
+    await pool.execute('UPDATE tasks SET status = ? WHERE id = ?', [status, id]);
     const updatedTask = { id, status };
     io.emit('taskUpdated', updatedTask);
     res.json(updatedTask);
@@ -87,7 +88,7 @@ app.delete('/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    await db.execute('DELETE FROM tasks WHERE id = ?', [id]);
+    await pool.execute('DELETE FROM tasks WHERE id = ?', [id]);
     io.emit('taskDeleted', { id });
     res.status(204).send();
   } catch (error) {
@@ -96,8 +97,15 @@ app.delete('/tasks/:id', async (req, res) => {
   }
 });
 
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ message: 'Internal Server Error', error: err });
+});
+
+
 //  server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
